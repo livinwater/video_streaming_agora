@@ -42,7 +42,7 @@ This project implements a low-latency video streaming solution using Agora's Web
 For secure token generation, you'll need to set these environment variables:
 
 - `APP_ID`: Your Agora App ID
-- `APP_CERTIFICATE`: Your Agora App Certificate (keep this secret!)
+- `APP_CERTIFICATE`: Your Agora App Certificate 
 - `PORT`: (Optional) Port to run the server on (default: 8080)
 
 You can set these variables in a `.env` file (for local development) or through your hosting platform for production.
