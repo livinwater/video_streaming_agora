@@ -1,0 +1,166 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #333;
+  background-color: #f4f4f4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+.container {
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+h1 {
+  color: #333;
+  font-size: 2em;
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  margin-top: 10px;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+select, input[type='text'] {
+  padding: 10px;
+  margin-top: 5px;
+  margin-right: 5px;
+  border-radius: 5px;
+  border: 1px solid #ddd;
+  font-size: 16px;
+  width: 100%;
+  max-width: 300px;
+}
+
+button {
+  padding: 10px;
+  margin-top: 5px;
+  margin-right: 5px;
+  border-radius: 5px;
+  border: 1px solid #ddd;
+  font-size: 16px;
+  cursor: pointer;
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+  transition: background-color 0.25s;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
+}
+
+.btn-success {
+  background-color: #28a745;
+  border-color: #28a745;
+}
+
+.btn-success:hover {
+  background-color: #218838;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  border-color: #dc3545;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+}
+
+#log {
+  margin-top: 15px;
+  font-size: 0.9em;
+  color: #555;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  padding: 5px;
+}
+
+.video-container {
+  margin-top: 20px;
+}
+
+video {
+  border: 1px solid #ddd;
+  width: 100%;
+  max-width: 640px;
+  background-color: #000;
+  border-radius: 5px;
+}
+
+.error {
+  color: red;
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.stats {
+  margin-top: 10px;
+  font-size: 0.8em;
+  color: #666;
+}
+
+.settings-section {
+  margin-top: 15px;
+  border: 1px solid #eee;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.settings-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.setting-row label {
+  margin: 0;
+  margin-right: 10px;
+  min-width: 100px;
+}
+
+.setting-row select, .setting-row input {
+  flex: 1;
+}
+
+.hidden {
+  display: none;
+}
