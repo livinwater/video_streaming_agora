@@ -1,5 +1,6 @@
 // CSS is now imported in _app.js instead
 import AgoraRTC from 'agora-rtc-sdk-ng';
+import jsAruco from 'js-aruco';
 
 // Agora credentials
 const APP_ID = '598a5efd867842b98ece817df8be08ee';
@@ -214,6 +215,200 @@ function logMessage(message) {
   logDiv.appendChild(p);
   logDiv.scrollTop = logDiv.scrollHeight; // Auto-scroll to latest message
   console.log(message);
+}
+
+/**
+ * ArUco Marker Detection
+ */
+
+// Setup ArUco marker detection on a video element
+function setupArucoDetection(uid, playerContainer) {
+  // Find the video element
+  const videoElement = playerContainer.querySelector('video');
+  if (!videoElement) {
+    console.error('Video element not found');
+    return;
+  }
+  
+  // Create processing canvas (hidden)
+  const processingCanvas = document.createElement('canvas');
+  const processingCtx = processingCanvas.getContext('2d', {
+    willReadFrequently: true
+  });
+  
+  // Create debug canvas (visible)
+  const debugCanvas = document.createElement('canvas');
+  debugCanvas.style.position = 'fixed';
+  debugCanvas.style.bottom = '10px';
+  debugCanvas.style.right = '10px';
+  debugCanvas.style.border = '2px solid red';
+  debugCanvas.style.zIndex = '1000';
+  debugCanvas.width = 320; // Quarter size for debug
+  debugCanvas.height = 180;
+  const debugCtx = debugCanvas.getContext('2d', {
+    willReadFrequently: true
+  });
+  document.body.appendChild(debugCanvas);
+  
+  // Create marker detector
+  console.log('Initializing ArUco detector...', { jsAruco: !!jsAruco, AR: !!(jsAruco?.AR) });
+  try {
+    // Create detector
+    const detector = new jsAruco.AR.Detector();
+    console.log('Successfully created detector');
+    
+    // Initialize POSIT with marker size and default focal length
+    const MARKER_SIZE_MM = 50; // Physical marker size in millimeters
+    const posit = new jsAruco.POS1.Posit(MARKER_SIZE_MM, 640);
+    console.log('Successfully created POSIT estimator');
+  
+    // Run detection at reasonable intervals
+    const detectInterval = setInterval(() => {
+      try {
+        // Check if video is ready
+        if (videoElement.videoWidth === 0 || videoElement.paused || videoElement.ended) return;
+        
+        // Set canvas size to match video
+        processingCanvas.width = videoElement.videoWidth;
+        processingCanvas.height = videoElement.videoHeight;
+        
+        // Capture frame
+        processingCtx.drawImage(videoElement, 0, 0);
+        
+        // Get image data for processing
+        const imageData = processingCtx.getImageData(0, 0, processingCanvas.width, processingCanvas.height);
+        
+        // Update POSIT focal length based on image width
+        const updatedPosit = new jsAruco.POS1.Posit(MARKER_SIZE_MM, imageData.width);
+        
+        // Debug visualization - show what the detector sees
+        debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+        debugCtx.save();
+        debugCtx.scale(
+          debugCanvas.width / imageData.width,
+          debugCanvas.height / imageData.height
+        );
+        
+        // Create temporary canvas for full-size image
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.putImageData(imageData, 0, 0);
+          // Draw original image
+          debugCtx.drawImage(tempCanvas, 0, 0);
+        }
+        debugCtx.restore();
+        
+        // Add debug info
+        debugCtx.fillStyle = 'red';
+        debugCtx.font = '12px monospace';
+        debugCtx.fillText(`Frame: ${imageData.width}x${imageData.height}`, 5, 15);
+        
+        // Detect markers
+        const markers = detector.detect(imageData);
+        
+        // Debug visualization of detected markers
+        if (markers.length > 0) {
+          console.log(`Detected ${markers.length} ArUco markers:`, markers);
+          updateMarkerInfo(uid, markers);
+          
+          debugCtx.strokeStyle = 'lime';
+          debugCtx.lineWidth = 2;
+          const scale = debugCanvas.width / imageData.width;
+          
+          markers.forEach(marker => {
+            debugCtx.beginPath();
+            marker.corners.forEach((corner, idx) => {
+              const x = corner.x * scale;
+              const y = corner.y * scale;
+              if (idx === 0) {
+                debugCtx.moveTo(x, y);
+              } else {
+                debugCtx.lineTo(x, y);
+              }
+            });
+            debugCtx.closePath();
+            debugCtx.stroke();
+            
+            // Display marker ID
+            const center = marker.corners.reduce(
+              (acc, corner) => ({ x: acc.x + corner.x, y: acc.y + corner.y }),
+              { x: 0, y: 0 }
+            );
+            center.x = (center.x / 4) * scale;
+            center.y = (center.y / 4) * scale;
+            
+            debugCtx.fillStyle = 'white';
+            debugCtx.font = '16px Arial';
+            debugCtx.fillText(`ID: ${marker.id}`, center.x - 12, center.y + 5);
+            
+            // Estimate pose if needed
+            try {
+              const corners = marker.corners.map(corner => ({ x: corner.x - (imageData.width / 2), y: (imageData.height / 2) - corner.y }));
+              const pose = updatedPosit.pose(corners);
+              
+              // Store pose information for later use
+              marker.pose = {
+                bestError: pose.bestError,
+                bestRotation: pose.bestRotation,
+                bestTranslation: pose.bestTranslation,
+                alternativeError: pose.alternativeError,
+                alternativeRotation: pose.alternativeRotation,
+                alternativeTranslation: pose.alternativeTranslation
+              };
+            } catch (error) {
+              console.error('Error estimating pose:', error);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error in marker detection:', error);
+      }
+    }, 200); // Detection interval
+  
+    // Store references for cleanup
+    if (remoteUsers[uid]) {
+      remoteUsers[uid].arucoInterval = detectInterval;
+      remoteUsers[uid].arucoCanvas = processingCanvas;
+      remoteUsers[uid].debugCanvas = debugCanvas;
+    }
+  } catch (error) {
+    console.error('Failed to initialize ArUco detection:', error);
+  }
+}
+
+// Draw markers on the canvas for visualization
+function drawMarkers(markers, ctx) {
+  ctx.lineWidth = 2;
+  
+  markers.forEach(marker => {
+    // Draw the marker outline
+    ctx.strokeStyle = 'red';
+    ctx.beginPath();
+    
+    // Draw the marker corners
+    for (let i = 0; i < marker.corners.length; i++) {
+      ctx.moveTo(marker.corners[i].x, marker.corners[i].y);
+      ctx.lineTo(marker.corners[(i + 1) % 4].x, marker.corners[(i + 1) % 4].y);
+    }
+    
+    ctx.stroke();
+    ctx.closePath();
+    
+    // Draw the marker ID
+    ctx.fillStyle = 'blue';
+    ctx.font = '12px Arial';
+    ctx.fillText(`ID: ${marker.id}`, marker.corners[0].x, marker.corners[0].y - 5);
+  });
+}
+
+// Update the info display with marker information
+function updateMarkerInfo(uid, markers) {
+  if (remoteUsers[uid] && remoteUsers[uid].infoDisplay) {
+    remoteUsers[uid].infoDisplay.textContent = `Stream from host (${markers.length} markers detected, IDs: ${markers.map(m => m.id).join(', ')})`;
+  }
 }
 
 /**
@@ -556,6 +751,11 @@ async function subscribe(user, mediaType) {
       setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
       }, 500);
+      
+      // Setup ArUco detection after a delay to ensure video is loaded
+      setTimeout(() => {
+        setupArucoDetection(user.uid, playerContainer);
+      }, 1000);
 
       // Store the user's track info for stats updates
       remoteUsers[user.uid] = {
@@ -592,7 +792,14 @@ async function leaveChannel() {
     await rtcClient.leave();
     logMessage('Left the channel successfully.');
     
-    // Clean up remote users
+    // Clean up remote users and stop ArUco detection
+    Object.keys(remoteUsers).forEach(uid => {
+      // Clear any ArUco detection intervals
+      if (remoteUsers[uid].arucoInterval) {
+        clearInterval(remoteUsers[uid].arucoInterval);
+      }
+    });
+    
     remoteVideoContainer.innerHTML = '';
     remoteUsers = {};
     
