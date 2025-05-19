@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export default function handler(req, res) {
+  // Debug logs
+  console.log('Token API route hit');
+  console.log('Query params:', req.query);
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
