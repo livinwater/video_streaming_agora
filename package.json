@@ -4,10 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "next dev",
+    "build": "next build",
     "preview": "vite preview",
-    "vercel-dev": "vercel dev"
+    "vercel-dev": "vercel dev",
+    "start": "next start"
   },
   "devDependencies": {
     "vite": "^6.3.5"
@@ -17,6 +18,9 @@
     "agora-rtc-sdk-ng": "^4.23.3",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "next": "^15.3.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   }
 }
