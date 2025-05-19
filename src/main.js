@@ -1,4 +1,4 @@
-import './style.css';
+// CSS is now imported in _app.js instead
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
 // Agora credentials
