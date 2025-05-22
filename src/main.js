@@ -553,6 +553,18 @@ async function joinAndPublish() {
     await rtcClient.join(APP_ID, channelName, token, uid);
     logMessage(`Successfully joined channel: ${channelName} with UID: ${uid}`);
     
+    // Set localUid for the entire application
+    localUid = uid;
+    
+    // Set localUsername for the tile
+    const usernameInputElement = document.getElementById('username-input');
+    if (usernameInputElement && usernameInputElement.value.trim() !== "") {
+        localUsername = usernameInputElement.value.trim();
+    } else {
+        localUsername = `Host ${localUid.toString()}`;
+    }
+    logMessage(`Host details: UID=${localUid}, Username=${localUsername}`);
+    
     // Create and publish local tracks
     const tracks = await setupLocalTracks();
     localVideoTrack = tracks[0];
@@ -587,6 +599,10 @@ async function joinAndPublish() {
     // Publish tracks
     await rtcClient.publish([localVideoTrack, localAudioTrack]);
     logMessage('Local tracks published successfully. You are now broadcasting!');
+    
+    // Create local participant tile for the host to see themselves
+    createLocalParticipantTile();
+    logMessage('Created local participant tile for host.');
     
     // Update UI
     joinButton.classList.add('hidden');
@@ -753,6 +769,26 @@ function setupClientEvents() {
   // Connection state change events
   rtcClient.on('connection-state-change', (curState, prevState) => {
     logMessage(`Connection state changed from ${prevState} to ${curState}`);
+  });
+  
+  // User joined event - triggers when a user joins the channel, even before publishing
+  rtcClient.on('user-joined', (user) => {
+    logMessage(`New user joined: ${user.uid}`);
+    remoteUsers[user.uid] = user;
+    
+    // Create a placeholder tile for the user immediately when they join
+    let tileElement = document.getElementById(`participant-${user.uid.toString()}`);
+    if (!tileElement) {
+      const tileHTML = createParticipantTileHTML(user.uid.toString(), `User ${user.uid.toString()}`);
+      const tempContainer = document.createElement('div');
+      tempContainer.innerHTML = tileHTML.trim();
+      
+      if (tempContainer.firstChild) {
+        tileElement = tempContainer.firstChild;
+        participantGrid.appendChild(tileElement);
+        logMessage(`Created placeholder tile for user ${user.uid} who just joined`);
+      }
+    }
   });
   
   // Stream events - remote user published
