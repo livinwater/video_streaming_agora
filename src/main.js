@@ -3,11 +3,12 @@ import AgoraRTC from 'agora-rtc-sdk-ng';
 import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
 import { APP_ID, DEFAULT_CHANNEL, fetchToken, getCurrentToken, clearToken } from './components/authManager.js';
-import { 
+import {
   populateVideoDeviceList,
+  populateAudioDeviceList,
   startLocalCamera,
-  createLocalTracks,
   stopCurrentStream,
+  createLocalTracks,
   handleMicToggle,
   getLocalVideoTrack,
   getLocalAudioTrack
@@ -50,6 +51,12 @@ document.querySelector('#app').innerHTML = `
         <select id="videoSource"></select>
         <button id="refreshButton" class="btn-secondary">Refresh List</button>
         <button id="startButton">Start Camera</button>
+      </div>
+      
+      <div style="margin-top: 10px;">
+        <label for="audioSource">Select Microphone:</label>
+        <select id="audioSource"></select>
+        <button id="refreshAudioButton" class="btn-secondary">Refresh List</button>
         <button id="micButton" disabled>Mute Mic</button>
       </div>
 
@@ -142,15 +149,17 @@ const viewerControls = document.getElementById('viewerControls');
 const localVideoContainer = document.getElementById('local-video-container');
 const participantGrid = document.getElementById('participant-grid');
 
-// Get UI elements - Host controls
-const videoSelect = document.getElementById('videoSource');
-const startButton = document.getElementById('startButton');
+// Get UI elements - Broadcasting controls
+const videoSourceSelect = document.getElementById('videoSource');
+const audioSourceSelect = document.getElementById('audioSource');
 const refreshButton = document.getElementById('refreshButton');
+const refreshAudioButton = document.getElementById('refreshAudioButton');
+const startButton = document.getElementById('startButton');
+const micButton = document.getElementById('micButton');
 const channelNameInput = document.getElementById('channelName');
 const joinButton = document.getElementById('joinButton');
 const leaveButton = document.getElementById('leaveButton');
 const localVideo = document.getElementById('localVideo');
-const micButton = document.getElementById('micButton');
 
 // Get UI elements - Viewer controls
 const viewerChannelNameInput = document.getElementById('viewerChannelName');
@@ -413,10 +422,9 @@ viewerBtn.addEventListener('click', () => {
   logMessage('Selected role: Viewer');
 });
 
-// Add event listeners for the host UI buttons
-refreshButton.addEventListener('click', () => {
-  loadVideoDevices();
-});
+// Add event listeners for the main UI buttons
+refreshButton.addEventListener('click', loadVideoDevices);
+refreshAudioButton.addEventListener('click', loadAudioDevices);
 
 startButton.addEventListener('click', initLocalCamera);
 
@@ -451,6 +459,7 @@ function logMessage(message) {
 document.addEventListener('DOMContentLoaded', () => {
   logMessage('Application initialized');
   loadVideoDevices();
+  loadAudioDevices();
 });
 
 // Initialize Agora Client with mode="live" for lowest latency
@@ -467,12 +476,24 @@ async function stopMediaStream() {
 // Populate video device list
 async function loadVideoDevices() {
   try {
-    errorMessage.textContent = 'Enumerating devices...';
-    await populateVideoDeviceList(videoSelect, logMessage);
+    errorMessage.textContent = 'Enumerating video devices...';
+    await populateVideoDeviceList(videoSourceSelect, logMessage);
     errorMessage.textContent = '';
   } catch (err) {
-    console.error('Error populating device list:', err);
-    errorMessage.textContent = `Error populating device list: ${err.name} - ${err.message}. Ensure camera permissions are granted.`;
+    console.error('Error populating video device list:', err);
+    errorMessage.textContent = `Error populating video device list: ${err.name} - ${err.message}. Ensure camera permissions are granted.`;
+  }
+}
+
+// Populate audio device list
+async function loadAudioDevices() {
+  try {
+    errorMessage.textContent = 'Enumerating audio devices...';
+    await populateAudioDeviceList(audioSourceSelect, logMessage);
+    errorMessage.textContent = '';
+  } catch (err) {
+    console.error('Error populating audio device list:', err);
+    errorMessage.textContent = `Error populating audio device list: ${err.name} - ${err.message}. Ensure microphone permissions are granted.`;
   }
 }
 
@@ -481,7 +502,7 @@ async function initLocalCamera() {
   errorMessage.textContent = '';
   
   try {
-    await startLocalCamera(localVideo, videoSelect, startButton, micButton, logMessage);
+    await startLocalCamera(localVideo, videoSourceSelect, startButton, micButton, logMessage);
     errorMessage.textContent = '';
     // After successful camera start, enable UI elements
     startButton.textContent = 'Camera Started';
@@ -502,7 +523,14 @@ async function setupLocalTracks() {
     logMessage('Creating local tracks for publishing...');
     
     // Use the imported function to create local tracks
-    const tracks = await createLocalTracks(videoSelect, videoProfileSelect, bitrateInput, framerateSelect, logMessage);
+    const tracks = await createLocalTracks(
+      videoSourceSelect,
+      audioSourceSelect,
+      videoProfileSelect, 
+      bitrateInput, 
+      framerateSelect, 
+      logMessage
+    );
     
     // Return the tracks in the expected format for main.js
     return [tracks.videoTrack, tracks.audioTrack];

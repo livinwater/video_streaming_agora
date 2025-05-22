@@ -41,6 +41,41 @@ export async function populateVideoDeviceList(videoSelect, logMessage) {
 }
 
 /**
+ * Populate the audio device dropdown list
+ * @param {HTMLSelectElement} audioSelect - The select element for audio devices
+ * @param {Function} logMessage - Function to log messages
+ */
+export async function populateAudioDeviceList(audioSelect, logMessage) {
+    try {
+        // Get list of audio input devices
+        const devices = await AgoraRTC.getDevices();
+        const audioDevices = devices.filter(device => device.kind === 'audioinput');
+        
+        // Clear existing options
+        audioSelect.innerHTML = '';
+        
+        // Add each audio device as an option
+        audioDevices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.text = device.label || `Microphone ${audioSelect.length + 1}`;
+            audioSelect.appendChild(option);
+        });
+        
+        if (audioDevices.length === 0) {
+            logMessage('No audio devices found');
+            const option = document.createElement('option');
+            option.text = 'No microphones available';
+            audioSelect.appendChild(option);
+        } else {
+            logMessage(`Found ${audioDevices.length} audio devices`);
+        }
+    } catch (error) {
+        logMessage(`Error getting audio devices: ${error.message}`);
+    }
+}
+
+/**
  * Start the local camera preview
  * @param {HTMLVideoElement} localVideo - The video element for local preview
  * @param {HTMLSelectElement} videoSelect - The select element for video devices
@@ -86,13 +121,14 @@ export async function startLocalCamera(localVideo, videoSelect, startButton, mic
 /**
  * Create and return Agora tracks from local camera
  * @param {HTMLSelectElement} videoSelect - The select element for video devices
+ * @param {HTMLSelectElement} audioSelect - The select element for audio devices
  * @param {HTMLSelectElement} videoProfileSelect - The select element for video profile
  * @param {HTMLInputElement} bitrateInput - The input for bitrate
  * @param {HTMLSelectElement} framerateSelect - The select element for framerate
  * @param {Function} logMessage - Function to log messages
  * @returns {Object} Object containing audio and video tracks
  */
-export async function createLocalTracks(videoSelect, videoProfileSelect, bitrateInput, framerateSelect, logMessage) {
+export async function createLocalTracks(videoSelect, audioSelect, videoProfileSelect, bitrateInput, framerateSelect, logMessage) {
     try {
         // Get selected profile, bitrate, and framerate
         const videoProfile = videoProfileSelect.value;
@@ -101,8 +137,14 @@ export async function createLocalTracks(videoSelect, videoProfileSelect, bitrate
         
         logMessage(`Creating tracks with profile: ${videoProfile}, bitrate: ${bitrate}, framerate: ${framerate}`);
         
-        // Create audio track
-        localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        // Create audio track with selected device if available
+        const audioConfig = {};
+        if (audioSelect && audioSelect.value) {
+            audioConfig.microphoneId = audioSelect.value;
+            logMessage(`Using selected microphone: ${audioSelect.options[audioSelect.selectedIndex].text}`);
+        }
+        
+        localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack(audioConfig);
         
         // Create video track with selected device and encoding settings
         const cameraConfig = {
