@@ -3,6 +3,15 @@ import AgoraRTC from 'agora-rtc-sdk-ng';
 import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
 import { APP_ID, DEFAULT_CHANNEL, fetchToken, getCurrentToken, clearToken } from './components/authManager.js';
+import { 
+  populateVideoDeviceList,
+  startLocalCamera,
+  createLocalTracks,
+  stopCurrentStream,
+  handleMicToggle,
+  getLocalVideoTrack,
+  getLocalAudioTrack
+} from './components/mediaManager.js';
 
 // RTC and RTM clients and instances
 let rtcClient = null;
@@ -17,6 +26,11 @@ let localProfilePicUrl = 'default-avatar.png'; // Default or fetched user avatar
 
 // Remote users collection
 let remoteUsers = {};
+
+// Track references retrieved from mediaManager
+let currentStream;
+let localVideoTrack;
+let localAudioTrack;
 
 // Initialize the app UI
 document.querySelector('#app').innerHTML = `
@@ -155,9 +169,6 @@ const framerateSelect = document.getElementById('framerate');
 const latencyLevelSelect = document.getElementById('latencyLevel');
 
 // State variables
-let currentStream;
-let localVideoTrack;
-let localAudioTrack;
 let statsInterval;
 
 // Store detector instances and intervals per UID to manage them
@@ -404,10 +415,10 @@ viewerBtn.addEventListener('click', () => {
 
 // Add event listeners for the host UI buttons
 refreshButton.addEventListener('click', () => {
-  populateVideoDeviceList();
+  loadVideoDevices();
 });
 
-startButton.addEventListener('click', startLocalCamera);
+startButton.addEventListener('click', initLocalCamera);
 
 joinButton.addEventListener('click', () => {
   joinAndPublish();
@@ -427,7 +438,7 @@ viewerLeaveButton.addEventListener('click', () => {
 });
 
 // Add event listener for mic button
-micButton.addEventListener('click', handleMicToggle);
+micButton.addEventListener('click', toggleMicrophoneState);
 function logMessage(message) {
   const p = document.createElement('p');
   p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -439,7 +450,7 @@ function logMessage(message) {
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
   logMessage('Application initialized');
-  populateVideoDeviceList();
+  loadVideoDevices();
 });
 
 // Initialize Agora Client with mode="live" for lowest latency
@@ -448,42 +459,17 @@ function initializeAgoraClient() {
 }
 
 // Stop current stream
-function stopCurrentStream() {
-  if (currentStream) {
-    currentStream.getTracks().forEach(track => {
-      track.stop();
-    });
-    localVideo.srcObject = null;
-    currentStream = null;
-  }
+async function stopMediaStream() {
+  await stopCurrentStream(logMessage);
+  localVideo.srcObject = null;
 }
 
 // Populate video device list
-async function populateVideoDeviceList() {
+async function loadVideoDevices() {
   try {
     errorMessage.textContent = 'Enumerating devices...';
-    
-    // Ensure permissions are fresh before enumerating
-    const tempStream = await navigator.mediaDevices.getUserMedia({video: true, audio: false}); 
-    tempStream.getTracks().forEach(track => track.stop());
-
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(device => device.kind === 'videoinput');
-    
-    videoSelect.innerHTML = ''; 
-    if (videoDevices.length === 0) {
-      errorMessage.textContent = 'No video input devices found.';
-      return;
-    }
-
-    videoDevices.forEach(device => {
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.text = device.label || `Camera ${videoSelect.options.length + 1} (ID: ${device.deviceId.substring(0,8)}...)`;
-      videoSelect.appendChild(option);
-    });
+    await populateVideoDeviceList(videoSelect, logMessage);
     errorMessage.textContent = '';
-    logMessage('Device list populated successfully');
   } catch (err) {
     console.error('Error populating device list:', err);
     errorMessage.textContent = `Error populating device list: ${err.name} - ${err.message}. Ensure camera permissions are granted.`;
@@ -491,79 +477,39 @@ async function populateVideoDeviceList() {
 }
 
 // Start local camera
-async function startLocalCamera() {
-  stopCurrentStream();
+async function initLocalCamera() {
   errorMessage.textContent = '';
-
-  const deviceId = videoSelect.value;
-  if (!deviceId) {
-    errorMessage.textContent = 'Please select a video source from the list.';
-    return;
-  }
-
-  // Get quality settings
-  const framerate = parseInt(framerateSelect.value);
   
-  const constraints = {
-    video: { 
-      deviceId: { exact: deviceId },
-      width: { ideal: 1280 }, 
-      height: { ideal: 720 },
-      frameRate: { ideal: framerate }
-    }
-  };
-
   try {
-    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-    localVideo.srcObject = currentStream;
-    localVideo.muted = true;
-    logMessage('Local camera started successfully.');
+    await startLocalCamera(localVideo, videoSelect, startButton, micButton, logMessage);
     errorMessage.textContent = '';
-
-    return currentStream;
+    // After successful camera start, enable UI elements
+    startButton.textContent = 'Camera Started';
+    startButton.disabled = true;
+    micButton.disabled = false;
+    return true;
   } catch (err) {
     console.error('Error accessing media devices:', err);
     errorMessage.textContent = `Error starting video: ${err.name} - ${err.message}.`;
     logMessage(`Error starting local camera: ${err.message}`);
-    return null;
+    return false;
   }
 }
 
 // Create and publish Agora tracks from local camera
-async function createLocalTracks() {
-  if (!currentStream) {
-    await startLocalCamera();
-    if (!currentStream) {
-      throw new Error('Failed to start local camera');
-    }
+async function setupLocalTracks() {
+  try {
+    logMessage('Creating local tracks for publishing...');
+    
+    // Use the imported function to create local tracks
+    const tracks = await createLocalTracks(videoSelect, videoProfileSelect, bitrateInput, framerateSelect, logMessage);
+    
+    // Return the tracks in the expected format for main.js
+    return [tracks.videoTrack, tracks.audioTrack];
+  } catch (error) {
+    logMessage(`Error creating local tracks: ${error.message}`);
+    throw error;
   }
-  
-  // Get Agora SDK's device ID format
-  const devices = await AgoraRTC.getDevices();
-  const videoDevices = devices.filter(device => device.kind === 'videoinput');
-  const selectedDevice = videoDevices.find(device => device.deviceId === videoSelect.value);
-  
-  // Configure video encoder settings for low latency
-  const videoEncoderConfig = {
-    width: 1280,
-    height: 720,
-    frameRate: parseInt(framerateSelect.value),
-    bitrateMin: parseInt(bitrateInput.value) * 0.7, // Min bitrate (70% of target)
-    bitrateMax: parseInt(bitrateInput.value) * 1.3, // Max bitrate (130% of target)
-    orientationMode: 'adaptative'
-  };
-  
-  // Create video track with optimized settings
-  const videoTrack = await AgoraRTC.createCameraVideoTrack({
-    cameraId: selectedDevice ? selectedDevice.deviceId : undefined,
-    encoderConfig: videoEncoderConfig,
-    optimizationMode: 'motion' // Prioritize motion over quality for low latency
-  });
-  
-  // Create audio track
-  const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-
-  return [videoTrack, audioTrack];
 }
 
 // Join channel as host and publish local tracks
@@ -608,9 +554,11 @@ async function joinAndPublish() {
     logMessage(`Successfully joined channel: ${channelName} with UID: ${uid}`);
     
     // Create and publish local tracks
-    const tracks = await createLocalTracks();
+    const tracks = await setupLocalTracks();
     localVideoTrack = tracks[0];
     localAudioTrack = tracks[1];
+    
+    // We can also retrieve the tracks if needed using getLocalVideoTrack() and getLocalAudioTrack()
     
     // Set stream fallback options for weak network
     await rtcClient.setStreamFallbackOption(uid, 1); // Enable stream fallback
@@ -950,19 +898,7 @@ function startStatsInterval() {
 }
 
 // Handle Microphone Toggle
-async function handleMicToggle() {
-  if (!localAudioTrack) {
-    logMessage("Audio track not available to toggle.");
-    micButton.disabled = true; // Should not happen if logic is correct
-    return;
-  }
-  try {
-    await localAudioTrack.setEnabled(!localAudioTrack.enabled);
-    const micStatus = localAudioTrack.enabled ? 'unmuted' : 'muted';
-    micButton.textContent = localAudioTrack.enabled ? 'Mute Mic' : 'Unmute Mic';
-    logMessage(`Microphone ${micStatus}.`);
-  } catch (error) {
-    console.error("Error toggling microphone:", error);
-    logMessage("Error toggling microphone state.");
-  }
+async function toggleMicrophoneState() {
+  // Use imported function to handle microphone toggling
+  await handleMicToggle(micButton, logMessage);
 }
