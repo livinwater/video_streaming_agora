@@ -2,6 +2,8 @@
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
+import { initializeARGame, startARGame, stopARGame, cleanupARGame, isARGameActive } from './components/ar/arGameIntegration.js';
+import { initializeARViewer, cleanupARViewer, isARViewerActive } from './components/ar/arViewerIntegration.js';
 import { APP_ID, DEFAULT_CHANNEL, fetchToken, getCurrentToken, clearToken } from './components/authManager.js';
 import {
   populateVideoDeviceList,
@@ -122,8 +124,10 @@ document.querySelector('#app').innerHTML = `
     <div class="video-area">
       <div id="local-video-container" class="hidden">
         <h3>Your Camera (Host View)</h3>
-        <div class="video-wrapper local-wrapper">
-          <video id="localVideo" autoplay playsinline muted></video>
+        <div id="local-video-container-wrapper" style="position: relative;">
+          <div id="local-video-element" class="video-element" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></div>
+          <img id="local-avatar" src="/assets/images/avatar.png" class="avatar" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"/>
+          <canvas id="local-canvas" class="marker-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
         </div>
       </div>
       
@@ -417,6 +421,34 @@ hostBtn.addEventListener('click', () => {
   viewerBtn.classList.remove('btn-success');
   viewerBtn.classList.add('btn-secondary');
   logMessage('Selected role: Host');
+  
+  // Add AR game toggle button
+  if (!document.getElementById('arGameButton')) {
+    const arGameButton = document.createElement('button');
+    arGameButton.id = 'arGameButton';
+    arGameButton.innerText = 'Start AR Game';
+    arGameButton.className = 'btn-secondary';
+    arGameButton.style.marginTop = '15px';
+    arGameButton.style.marginLeft = '10px';
+    hostControls.appendChild(arGameButton);
+    
+    // Add event listener
+    arGameButton.addEventListener('click', async () => {
+      if (isARGameActive()) {
+        await stopARGame(logMessage);
+        arGameButton.innerText = 'Start AR Game';
+        arGameButton.classList.add('btn-secondary');
+        arGameButton.classList.remove('btn-success');
+        logMessage('AR game stopped');
+      } else {
+        await startARGame(logMessage);
+        arGameButton.innerText = 'Stop AR Game';
+        arGameButton.classList.remove('btn-secondary');
+        arGameButton.classList.add('btn-success');
+        logMessage('AR game started');
+      }
+    });
+  }
 });
 
 viewerBtn.addEventListener('click', () => {
@@ -641,6 +673,20 @@ async function joinAndPublish() {
     createLocalParticipantTile();
     logMessage('Created local participant tile for host.');
     
+    // Initialize and start AR game for host
+    if (userRole === 'host') {
+      try {
+        // Initialize AR game
+        await initializeARGame(rtcClient, localVideo, localUid, logMessage);
+        
+        // Start AR game
+        await startARGame(logMessage);
+        logMessage('AR game initialized and started');
+      } catch (arError) {
+        logMessage(`Warning: Could not initialize AR game: ${arError.message}`);
+      }
+    }
+    
     // Update UI
     joinButton.classList.add('hidden');
     leaveButton.classList.remove('hidden');
@@ -773,6 +819,15 @@ async function leaveChannel() {
       localVideoTrack = null;
       localAudioTrack.close();
       localAudioTrack = null;
+      
+      // Clean up AR game
+      try {
+        await stopARGame(logMessage);
+        cleanupARGame(logMessage);
+        logMessage('AR game stopped and cleaned up');
+      } catch (arError) {
+        logMessage(`Warning: Error cleaning up AR game: ${arError.message}`);
+      }
     }
     
     // Leave the channel
@@ -868,7 +923,23 @@ function setupClientEvents() {
         logMessage(`Playing video for ${user.uid} in tile. (Video shown, avatar hidden)`);
         const canvasElement = document.getElementById(`canvas-${user.uid}`);
         const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
+        
+        // Setup ArUco marker detection on the remote stream
         setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+        
+        // If this user is a host and we are a viewer, initialize the AR viewer
+        if (userRole === 'viewer') {
+          // Check if the user is a host by checking if they're publishing video
+          initializeARViewer(videoElement, user.uid.toString(), logMessage, {
+            markerIds: [0, 63, 91] // Same marker IDs as used in the host AR game
+          }).then(success => {
+            if (success) {
+              logMessage(`AR viewer initialized for host ${user.uid}`);
+            } else {
+              logMessage(`Failed to initialize AR viewer for host ${user.uid}`);
+            }
+          });
+        }
       } else {
         logMessage(`Error: Video or avatar element not found for user ${user.uid} after adding tile.`);
       }
@@ -900,7 +971,17 @@ function setupClientEvents() {
     if (userTile) {
       userTile.remove();
     }
-    updateStats(); // Update stats if needed
+    
+    // Clean up any resources for this user
+    stopArucoDetectionForRemoteStream(user.uid.toString(), logMessage);
+    
+    // If we're a viewer and AR viewer is active, clean it up
+    if (userRole === 'viewer' && isARViewerActive()) {
+      cleanupARViewer(logMessage);
+      logMessage(`AR viewer cleaned up after host ${user.uid} left`);
+    }
+    
+    delete remoteUsers[user.uid];
   });
 
   // Network quality events

@@ -6,6 +6,9 @@ const ARUCO_MARKER_SIZE_MM = 50; // Physical marker size in millimeters for POSI
 // Store ArUco instances for remote users (key: uid string)
 const arucoDetectors = {};
 
+// Callback registry for marker detections
+const markerCallbacks = {};
+
 /**
  * Setup ArUco marker detection on a remote user's video stream
  * @param {string} uid - User ID of the remote stream
@@ -77,14 +80,17 @@ function updateArucoForRemoteStream(uid, logMessage) {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
         // Detect markers
-        const markers = detector.detect(imageData);
+        const detectedMarkers = detector.detect(imageData);
         
         // Clear previous drawings
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        if (markers.length > 0) {
+        // Transform detected markers into 3D ready format with pose matrices
+        const markers = [];
+        
+        if (detectedMarkers.length > 0) {
             let infoText = [];
-            markers.forEach(marker => {
+            detectedMarkers.forEach(marker => {
                 // Draw marker outline
                 ctx.strokeStyle = 'green';
                 ctx.lineWidth = 3;
@@ -103,9 +109,33 @@ function updateArucoForRemoteStream(uid, logMessage) {
                 }));
                 const pose = posit.pose(cornersForPosit);
                 let poseErrorText = 'N/A';
+                
+                // Create a pose matrix for 3D rendering
                 if (pose) {
                     poseErrorText = pose.bestError !== undefined ? pose.bestError.toFixed(2) : 'N/A';
+                    
+                    // Create 4x4 transformation matrix for BabylonJS
+                    // Column-major format
+                    const poseMatrix = [
+                        pose.bestRotation[0][0], pose.bestRotation[1][0], pose.bestRotation[2][0], 0,
+                        pose.bestRotation[0][1], pose.bestRotation[1][1], pose.bestRotation[2][1], 0,
+                        pose.bestRotation[0][2], pose.bestRotation[1][2], pose.bestRotation[2][2], 0,
+                        pose.bestTranslation[0], pose.bestTranslation[1], pose.bestTranslation[2], 1
+                    ];
+                    
+                    // Add to markers array with full info
+                    markers.push({
+                        id: marker.id,
+                        corners: marker.corners,
+                        center: {
+                            x: marker.corners.reduce((sum, corner) => sum + corner.x, 0) / 4,
+                            y: marker.corners.reduce((sum, corner) => sum + corner.y, 0) / 4
+                        },
+                        poseMatrix: poseMatrix,
+                        error: pose.bestError
+                    });
                 }
+                
                 infoText.push(`ID: ${marker.id} (Err: ${poseErrorText})`);
             });
             
@@ -119,6 +149,16 @@ function updateArucoForRemoteStream(uid, logMessage) {
                 markerInfo.textContent = 'Marker: None';
             }
         }
+        
+        // Call any registered callbacks with processed markers
+        if (markerCallbacks[uid]) {
+            try {
+                markerCallbacks[uid](markers);
+            } catch (error) {
+                logMessage(`Error in marker callback for ${uid}: ${error.message}`);
+            }
+        }
+        
     } catch (error) {
         logMessage(`ArUco detection error for user ${uid}: ${error.message}`);
     }
@@ -141,5 +181,37 @@ export function stopArucoDetectionForRemoteStream(uid, logMessage) {
         instance.markerInfo.textContent = 'Marker: Off';
     }
     delete arucoDetectors[uid];
+    delete markerCallbacks[uid];
     logMessage(`Stopped ArUco detection for user ${uid}`);
+}
+
+/**
+ * Register a callback for marker detection events for a specific user
+ * @param {string} uid - User ID of the remote stream
+ * @param {Function} callback - Function to call when markers are detected
+ * @param {Function} logMessage - Function to log messages
+ */
+export function registerMarkerCallback(uid, callback, logMessage) {
+    if (typeof callback !== 'function') {
+        if (logMessage) logMessage(`Invalid marker callback for user ${uid}`);
+        return false;
+    }
+    
+    markerCallbacks[uid] = callback;
+    if (logMessage) logMessage(`Registered marker callback for user ${uid}`);
+    return true;
+}
+
+/**
+ * Unregister a marker detection callback for a specific user
+ * @param {string} uid - User ID of the remote stream
+ * @param {Function} logMessage - Function to log messages
+ */
+export function unregisterMarkerCallback(uid, logMessage) {
+    if (markerCallbacks[uid]) {
+        delete markerCallbacks[uid];
+        if (logMessage) logMessage(`Unregistered marker callback for user ${uid}`);
+        return true;
+    }
+    return false;
 }
