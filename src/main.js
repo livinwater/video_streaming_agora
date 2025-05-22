@@ -2,20 +2,7 @@
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
-
-// Agora credentials
-const APP_ID = '598a5efd867842b98ece817df8be08ee';
-const DEFAULT_CHANNEL = 'robotrumble-stream';
-
-// Token management
-let currentToken = null;
-const tokenExpiryTime = 3600; // Token expiry in seconds (1 hour)
-let tokenExpiryTimer = null;
-
-// Token server URL
-// In development, use the relative path that will be handled by Vercel dev
-// In production, this will point to the deployed API route
-const TOKEN_SERVER_URL = '/api/token';
+import { APP_ID, DEFAULT_CHANNEL, fetchToken, getCurrentToken, clearToken } from './components/authManager.js';
 
 // RTC and RTM clients and instances
 let rtcClient = null;
@@ -30,9 +17,6 @@ let localProfilePicUrl = 'default-avatar.png'; // Default or fetched user avatar
 
 // Remote users collection
 let remoteUsers = {};
-
-// For development/testing, you can use this temporary token
-const TEMP_TOKEN = '007eJxTYHj0+rXm25QnAtfrOvO9nFSzNf/u716+/6KHvJbZPCdl0X0KDKaWFommqWkpFmbmFiZGSZYWqcmpFobmKWkWSakGFqmpET+1MhoCGRmijBcwMEIhiC/EUJSflF9SVJqblJOqW1xSlJqYy8AAAH3kJY0=';
 
 // Initialize the app UI
 document.querySelector('#app').innerHTML = `
@@ -452,48 +436,6 @@ function logMessage(message) {
   console.log(message);
 }
 
-// Token management
-async function fetchToken(channelName, uid, role) {
-  try {
-    logMessage(`Requesting token from server for channel: ${channelName}, uid: ${uid}, role: ${role}`);
-    
-    // Try to fetch from token server
-    const response = await fetch(`${TOKEN_SERVER_URL}?channelName=${channelName}&uid=${uid}&role=${role}`);
-    if (!response.ok) {
-      throw new Error(`Token server error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    if (!data.token) {
-      throw new Error('Token not found in response');
-    }
-    
-    currentToken = data.token;
-    
-    // Set up token refresh before it expires
-    const refreshTime = (tokenExpiryTime - 60) * 1000; // Refresh 1 minute before expiry
-    clearTimeout(tokenExpiryTimer);
-    tokenExpiryTimer = setTimeout(() => {
-      logMessage('Token about to expire, refreshing...');
-      fetchToken(channelName, uid, role);
-    }, refreshTime);
-    
-    logMessage('Token fetched successfully');
-    return data.token;
-  } catch (err) {
-    logMessage(`Error fetching token: ${err.message}`);
-    errorMessage.textContent = `Token error: ${err.message}`;
-    
-    // Fallback to temporary token if configured
-    if (TEMP_TOKEN) {
-      logMessage('Falling back to temporary token');
-      currentToken = TEMP_TOKEN;
-      return TEMP_TOKEN;
-    }
-    throw err;
-  }
-}
-
 // Initialize application
 document.addEventListener('DOMContentLoaded', () => {
   logMessage('Application initialized');
@@ -659,7 +601,7 @@ async function joinAndPublish() {
     });
     
     // Get a token for this channel and role
-    const token = await fetchToken(channelName, uid, 'host');
+    const token = await fetchToken(channelName, uid, 'host', logMessage);
     
     // Join the channel using APP_ID and token
     await rtcClient.join(APP_ID, channelName, token, uid);
@@ -749,7 +691,7 @@ async function joinAsViewer() {
     await rtcClient.setClientRole('host'); 
     
     // Get an RTC token
-    const rtcTokenForViewer = await fetchToken(channelName, localUid, 'publisher'); 
+    const rtcTokenForViewer = await fetchToken(channelName, localUid, 'publisher', logMessage);
     
     // Join the RTC channel
     await rtcClient.join(APP_ID, channelName, rtcTokenForViewer, localUid);
