@@ -1,0 +1,145 @@
+import jsAruco from 'js-aruco';
+
+// ArUco specific variables
+const ARUCO_MARKER_SIZE_MM = 50; // Physical marker size in millimeters for POSIT
+
+// Store ArUco instances for remote users (key: uid string)
+const arucoDetectors = {};
+
+/**
+ * Setup ArUco marker detection on a remote user's video stream
+ * @param {string} uid - User ID of the remote stream
+ * @param {HTMLVideoElement} videoElement - Video element of the remote stream
+ * @param {HTMLCanvasElement} canvasElement - Canvas element for marker overlay
+ * @param {HTMLElement} markerInfoElement - Element to display marker information
+ * @param {Function} logMessage - Function to log messages
+ */
+export function setupArucoDetectionForRemoteStream(uid, videoElement, canvasElement, markerInfoElement, logMessage) {
+    if (arucoDetectors[uid]) {
+        logMessage(`ArUco detection already running for user ${uid}`);
+        return;
+    }
+
+    if (!videoElement || !canvasElement || !markerInfoElement) {
+        logMessage(`Required elements not found for ArUco setup (user ${uid})`);
+        return;
+    }
+
+    const detector = new jsAruco.AR.Detector();
+    // Initialize posit with default width, we'll update it when video dimensions are available
+    const posit = new jsAruco.POS1.Posit(ARUCO_MARKER_SIZE_MM, 1280);
+    const canvas = canvasElement;
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size to match video
+    canvas.width = videoElement.videoWidth || 640;
+    canvas.height = videoElement.videoHeight || 480;
+
+    // Create detector instance
+    arucoDetectors[uid] = {
+        detector,
+        posit,
+        canvas,
+        ctx,
+        video: videoElement,
+        markerInfo: markerInfoElement,
+        interval: setInterval(() => updateArucoForRemoteStream(uid, logMessage), 100) // Run detection every 100ms
+    };
+
+    logMessage(`Started ArUco detection for user ${uid}`);
+}
+
+/**
+ * Core ArUco detection loop for a specific remote stream
+ * @param {string} uid - User ID of the remote stream
+ * @param {Function} logMessage - Function to log messages
+ */
+function updateArucoForRemoteStream(uid, logMessage) {
+    const instance = arucoDetectors[uid];
+    if (!instance) return;
+
+    const { detector, posit, canvas, ctx, video, markerInfo } = instance;
+
+    // Check if video is playing and has valid dimensions
+    if (video.paused || video.ended || !video.videoWidth) return;
+
+    // Update canvas size if needed
+    if (canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+    }
+
+    try {
+        // Draw current video frame to canvas
+        ctx.drawImage(video, 0, 0);
+        
+        // Get image data for detection
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // Detect markers
+        const markers = detector.detect(imageData);
+        
+        // Clear previous drawings
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (markers.length > 0) {
+            let infoText = [];
+            markers.forEach(marker => {
+                // Draw marker outline
+                ctx.strokeStyle = 'green';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                marker.corners.forEach((corner, i) => {
+                    if (i === 0) ctx.moveTo(corner.x, corner.y);
+                    else ctx.lineTo(corner.x, corner.y);
+                });
+                ctx.closePath();
+                ctx.stroke();
+
+                // Estimate pose
+                const cornersForPosit = marker.corners.map(p => ({
+                    x: p.x - (imageData.width / 2),
+                    y: (imageData.height / 2) - p.y
+                }));
+                const pose = posit.pose(cornersForPosit);
+                let poseErrorText = 'N/A';
+                if (pose) {
+                    poseErrorText = pose.bestError !== undefined ? pose.bestError.toFixed(2) : 'N/A';
+                }
+                infoText.push(`ID: ${marker.id} (Err: ${poseErrorText})`);
+            });
+            
+            // Update marker info display
+            if (markerInfo) {
+                markerInfo.textContent = infoText.join(' | ');
+            }
+        } else {
+            // No markers found
+            if (markerInfo) {
+                markerInfo.textContent = 'Marker: None';
+            }
+        }
+    } catch (error) {
+        logMessage(`ArUco detection error for user ${uid}: ${error.message}`);
+    }
+}
+
+/**
+ * Stop ArUco marker detection for a specific remote stream
+ * @param {string} uid - User ID of the remote stream
+ * @param {Function} logMessage - Function to log messages
+ */
+export function stopArucoDetectionForRemoteStream(uid, logMessage) {
+    const instance = arucoDetectors[uid];
+    if (!instance) return;
+
+    clearInterval(instance.interval);
+    if (instance.ctx) {
+        instance.ctx.clearRect(0, 0, instance.canvas.width, instance.canvas.height);
+    }
+    if (instance.markerInfo) {
+        instance.markerInfo.textContent = 'Marker: Off';
+    }
+    delete arucoDetectors[uid];
+    logMessage(`Stopped ArUco detection for user ${uid}`);
+}

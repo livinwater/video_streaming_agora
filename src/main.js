@@ -1,7 +1,7 @@
 // CSS is now imported in _app.js instead
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
-import jsAruco from 'js-aruco';
+import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
 
 // Agora credentials
 const APP_ID = '598a5efd867842b98ece817df8be08ee';
@@ -179,26 +179,7 @@ let statsInterval;
 // Store detector instances and intervals per UID to manage them
 const arucoDetectors = {};
 
-// Helper function to create HTML for a participant tile
-function createParticipantTileHTML(uid, username = "User", profilePicUrl = 'default-avatar.png') {
-  return `
-    <div class="participant-tile" id="participant-${uid}">
-      <div class="video-wrapper">
-        <video id="video-${uid}" autoplay playsinline class="hidden"></video> 
-        <canvas id="canvas-${uid}" class="marker-canvas-overlay"></canvas>
-        <img id="avatar-${uid}" src="${profilePicUrl}" class="avatar">
-      </div>
-      <div class="participant-meta">
-        <span id="name-${uid}" class="username">${username}</span>
-        <div id="marker-info-${uid}" class="marker-info-overlay">Marker: None</div>
-        <div class="media-controls">
-          <button id="mic-btn-${uid}" class="media-btn control-btn-off hidden" title="Unmute Microphone"> Mic Off</button>
-          <button id="cam-btn-${uid}" class="media-btn control-btn-off hidden" title="Start Camera"> Cam Off</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
+import { createParticipantTileHTML } from './components/participantTile.js';
 
 // Create local participant tile
 function createLocalParticipantTile() {
@@ -463,152 +444,12 @@ viewerLeaveButton.addEventListener('click', () => {
 
 // Add event listener for mic button
 micButton.addEventListener('click', handleMicToggle);
-
-// Helper function to log messages
 function logMessage(message) {
   const p = document.createElement('p');
   p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
   logDiv.appendChild(p);
   logDiv.scrollTop = logDiv.scrollHeight; // Auto-scroll to latest message
   console.log(message);
-}
-
-// ArUco specific variables
-const ARUCO_MARKER_SIZE_MM = 50; // Physical marker size in millimeters for POSIT
-
-// Store ArUco instances for remote users (key: uid string)
-const remoteArucoDetectors = {};
-
-// Setup ArUco marker detection on a remote user's video stream
-function setupArucoDetectionForRemoteStream(uid) {
-  if (!remoteArucoDetectors[uid]) {
-    const videoElement = document.getElementById(`video-${uid}`);
-    const displayCanvas = document.getElementById(`canvas-${uid}`);
-    const infoDiv = document.getElementById(`marker-info-${uid}`);
-
-    if (!videoElement || !displayCanvas || !infoDiv) {
-      console.error(`DOM elements for ArUco detection on remote stream ${uid} not found.`);
-      return;
-    }
-
-    try {
-      const detector = new jsAruco.AR.Detector();
-      const posit = new jsAruco.POS1.Posit(ARUCO_MARKER_SIZE_MM, videoElement.videoWidth || 1280); // Default to 1280 if videoWidth not ready
-      const processingCanvas = document.createElement('canvas'); // In-memory canvas
-      const displayCtx = displayCanvas.getContext('2d');
-
-      remoteArucoDetectors[uid] = {
-        detector,
-        posit,
-        processingCanvas,
-        displayCanvas,
-        displayCtx,
-        infoDiv,
-        markerSizeMM: ARUCO_MARKER_SIZE_MM,
-        intervalId: null,
-      };
-
-      // Start the detection loop
-      remoteArucoDetectors[uid].intervalId = setInterval(() => {
-        updateArucoForRemoteStream(uid);
-      }, 100); // Detect roughly 10 times per second
-
-      console.log(`ArUco detection setup for remote stream: ${uid}`);
-    } catch (error) {
-      console.error(`Error initializing ArUco for remote stream ${uid}:`, error);
-      if (remoteArucoDetectors[uid]) delete remoteArucoDetectors[uid]; // Clean up partial setup
-    }
-  }
-}
-
-// Core ArUco detection loop for a specific remote stream
-function updateArucoForRemoteStream(uid) {
-  const arucoContext = remoteArucoDetectors[uid];
-  if (!arucoContext) return;
-
-  const {
-    detector,
-    posit,
-    processingCanvas,
-    displayCanvas,
-    displayCtx,
-    infoDiv,
-    markerSizeMM
-  } = arucoContext;
-
-  const videoElement = document.getElementById(`video-${uid}`);
-  if (!videoElement || videoElement.readyState < videoElement.HAVE_METADATA || videoElement.paused || videoElement.ended || videoElement.videoWidth === 0) {
-    return; // Video not ready or not playing
-  }
-
-  // Ensure canvases match video dimensions
-  if (processingCanvas.width !== videoElement.videoWidth || processingCanvas.height !== videoElement.videoHeight) {
-    processingCanvas.width = videoElement.videoWidth;
-    processingCanvas.height = videoElement.videoHeight;
-    displayCanvas.width = videoElement.videoWidth;
-    displayCanvas.height = videoElement.videoHeight;
-    // Update posit focal length with new width
-    arucoContext.posit = new jsAruco.POS1.Posit(markerSizeMM, videoElement.videoWidth);
-  }
-
-  const processingCtx = processingCanvas.getContext('2d', { willReadFrequently: true });
-  processingCtx.drawImage(videoElement, 0, 0, processingCanvas.width, processingCanvas.height);
-  
-  try {
-    const imageData = processingCtx.getImageData(0, 0, processingCanvas.width, processingCanvas.height);
-    const markers = detector.detect(imageData);
-
-    displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-    infoDiv.textContent = 'Marker: None';
-
-    if (markers.length > 0) {
-      let infoText = [];
-      markers.forEach(marker => {
-        // Draw marker outline
-        displayCtx.strokeStyle = 'green';
-        displayCtx.lineWidth = 3;
-        displayCtx.beginPath();
-        marker.corners.forEach((corner, i) => {
-          if (i === 0) displayCtx.moveTo(corner.x, corner.y);
-          else displayCtx.lineTo(corner.x, corner.y);
-        });
-        displayCtx.closePath();
-        displayCtx.stroke();
-
-        // Estimate pose
-        const cornersForPosit = marker.corners.map(p => ({ x: p.x - (imageData.width / 2), y: (imageData.height / 2) - p.y }));
-        const pose = posit.pose(cornersForPosit);
-        let poseErrorText = 'N/A';
-        if (pose) {
-          poseErrorText = pose.bestError !== undefined ? pose.bestError.toFixed(2) : 'N/A';
-        }
-        infoText.push(`ID: ${marker.id} (Err: ${poseErrorText})`);
-      });
-      infoDiv.textContent = infoText.join(' | ');
-    } else {
-        infoDiv.textContent = 'Marker: None';
-    }
-  } catch (error) {
-    console.error(`Error during ArUco detection for ${uid}:`, error);
-    displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-    infoDiv.textContent = 'Marker: Error';
-  }
-}
-
-// Stop ArUco marker detection for a specific remote stream
-function stopArucoDetectionForRemoteStream(uid) {
-  const arucoContext = remoteArucoDetectors[uid];
-  if (arucoContext) {
-    clearInterval(arucoContext.intervalId);
-    if (arucoContext.displayCtx) {
-        arucoContext.displayCtx.clearRect(0, 0, arucoContext.displayCanvas.width, arucoContext.displayCanvas.height);
-    }
-    if (arucoContext.infoDiv) {
-        arucoContext.infoDiv.textContent = 'Marker: Off';
-    }
-    delete remoteArucoDetectors[uid];
-    console.log(`ArUco detection stopped for remote stream: ${uid}`);
-  }
 }
 
 // Token management
@@ -1062,7 +903,9 @@ function setupClientEvents() {
         avatarImg.classList.add('hidden');
         
         logMessage(`Playing video for ${user.uid} in tile. (Video shown, avatar hidden)`);
-        setupArucoDetectionForRemoteStream(user.uid.toString());
+        const canvasElement = document.getElementById(`canvas-${user.uid}`);
+        const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
+        setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
       } else {
         logMessage(`Error: Video or avatar element not found for user ${user.uid} after adding tile.`);
       }
