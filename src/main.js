@@ -263,6 +263,15 @@ function createLocalParticipantTile() {
           camButton.textContent = '📷 Cam On';
           camButton.className = 'media-btn control-btn-on';
         }
+        
+        // Set up ArUco detection for the host's own video
+        const canvasElement = document.getElementById(`canvas-${localUidStr}`);
+        const markerInfoElement = document.getElementById(`marker-info-${localUidStr}`);
+        
+        if (canvasElement && markerInfoElement) {
+          logMessage(`Setting up ArUco detection for host's own video (${localUidStr})`);
+          setupArucoDetectionForRemoteStream(localUidStr, localVideoElement, canvasElement, markerInfoElement, logMessage);
+        }
       }
       
       // Update mic button if we have audio
