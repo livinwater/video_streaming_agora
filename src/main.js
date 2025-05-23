@@ -4,6 +4,7 @@ import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
 import { initializeARGame, startARGame, stopARGame, cleanupARGame, isARGameActive } from './components/ar/arGameIntegration.js';
 import { initializeARViewer, cleanupARViewer, isARViewerActive } from './components/ar/arViewerIntegration.js';
+import { initializeThreeViewer, cleanupThreeViewer, isThreeViewerActive } from './components/ar/threeViewerIntegration.js';
 import { APP_ID, DEFAULT_CHANNEL, fetchToken, getCurrentToken, clearToken } from './components/authManager.js';
 import {
   populateVideoDeviceList,
@@ -927,16 +928,16 @@ function setupClientEvents() {
         // Setup ArUco marker detection on the remote stream
         setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
         
-        // If this user is a host and we are a viewer, initialize the AR viewer
+        // If this user is a host and we are a viewer, initialize the ThreeJS AR viewer
         if (userRole === 'viewer') {
           // Check if the user is a host by checking if they're publishing video
-          initializeARViewer(videoElement, user.uid.toString(), logMessage, {
+          initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
             markerIds: [0, 63, 91] // Same marker IDs as used in the host AR game
           }).then(success => {
             if (success) {
-              logMessage(`AR viewer initialized for host ${user.uid}`);
+              logMessage(`ThreeJS AR viewer initialized for host ${user.uid}`);
             } else {
-              logMessage(`Failed to initialize AR viewer for host ${user.uid}`);
+              logMessage(`Failed to initialize ThreeJS AR viewer for host ${user.uid}`);
             }
           });
         }
@@ -975,10 +976,19 @@ function setupClientEvents() {
     // Clean up any resources for this user
     stopArucoDetectionForRemoteStream(user.uid.toString(), logMessage);
     
-    // If we're a viewer and AR viewer is active, clean it up
-    if (userRole === 'viewer' && isARViewerActive()) {
-      cleanupARViewer(logMessage);
-      logMessage(`AR viewer cleaned up after host ${user.uid} left`);
+    // If we're a viewer, clean up any active AR viewers
+    if (userRole === 'viewer') {
+      // Clean up BabylonJS AR viewer if active
+      if (isARViewerActive()) {
+        cleanupARViewer(logMessage);
+        logMessage(`BabylonJS AR viewer cleaned up after host ${user.uid} left`);
+      }
+      
+      // Clean up ThreeJS AR viewer if active
+      if (isThreeViewerActive()) {
+        cleanupThreeViewer(logMessage);
+        logMessage(`ThreeJS AR viewer cleaned up after host ${user.uid} left`);
+      }
     }
     
     delete remoteUsers[user.uid];
