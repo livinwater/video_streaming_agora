@@ -2,8 +2,7 @@
 import AgoraRTC from 'agora-rtc-sdk-ng';
 import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
-import { initializeARGame, startARGame, stopARGame, cleanupARGame, isARGameActive } from './components/ar/arGameIntegration.js';
-import { initializeARViewer, cleanupARViewer, isARViewerActive } from './components/ar/arViewerIntegration.js';
+import { initializeARGame, startARGame, stopARGame, cleanupARGame, isARGameActive } from './components/ar/arGameIntegration.stub.js';
 import { initializeThreeViewer, cleanupThreeViewer, isThreeViewerActive } from './components/ar/threeViewerIntegration.js';
 import { APP_ID, DEFAULT_CHANNEL, fetchToken, getCurrentToken, clearToken } from './components/authManager.js';
 import {
@@ -978,12 +977,6 @@ function setupClientEvents() {
     
     // If we're a viewer, clean up any active AR viewers
     if (userRole === 'viewer') {
-      // Clean up BabylonJS AR viewer if active
-      if (isARViewerActive()) {
-        cleanupARViewer(logMessage);
-        logMessage(`BabylonJS AR viewer cleaned up after host ${user.uid} left`);
-      }
-      
       // Clean up ThreeJS AR viewer if active
       if (isThreeViewerActive()) {
         cleanupThreeViewer(logMessage);
