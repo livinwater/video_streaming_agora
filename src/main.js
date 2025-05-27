@@ -931,7 +931,7 @@ function setupClientEvents() {
         if (userRole === 'viewer') {
           // Check if the user is a host by checking if they're publishing video
           initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
-            markerIds: [0, 63, 91] // Same marker IDs as used in the host AR game
+            markerIds: [1] // Use marker ID 1 for the AR key
           }).then(success => {
             if (success) {
               logMessage(`ThreeJS AR viewer initialized for host ${user.uid}`);

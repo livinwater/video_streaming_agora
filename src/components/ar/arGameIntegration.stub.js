@@ -2,6 +2,8 @@
  * AR Game Integration Stub
  * This is a simplified version of the AR game integration that doesn't use Babylon.js
  * Created to fix Vercel deployment issues
+ * 
+ * Note: The system is configured to detect ArUco marker ID 1 and render a 3D key
  */
 
 let arGameActive = false;

@@ -50,10 +50,17 @@ export class ThreeViewerConnector {
       
       // Pre-create keys for the expected marker IDs if specified
       if (options.markerIds && Array.isArray(options.markerIds)) {
+        this.logMessage(`Pre-creating keys for marker IDs: ${options.markerIds.join(', ')}`);
+        
         for (const markerId of options.markerIds) {
           await this.arEngine.addKey(markerId);
-          this.logMessage(`Added key for marker ID ${markerId} for ThreeJS viewer`);
+          this.activeMarkerIds.add(markerId);
         }
+      } else {
+        // Default to marker ID 1 if none specified
+        this.logMessage('No marker IDs specified, defaulting to marker ID 1');
+        await this.arEngine.addKey(1);
+        this.activeMarkerIds.add(1);
       }
       
       this.initialized = true;
