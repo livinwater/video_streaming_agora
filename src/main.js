@@ -1033,24 +1033,22 @@ function setupClientEvents() {
     // Clean up any resources for this specific user
     stopArucoDetectionForRemoteStream(user.uid.toString(), logMessage);
     
-    // Only clean up AR viewer if the user who left was the designated host
-    if (userRole === 'viewer' && designatedHosts.has(user.uid.toString())) {
-      logMessage(`Designated host ${user.uid} left - cleaning up AR viewer`);
+    // Only clean up AR viewer if the user who left was the FIRST VIDEO PUBLISHER (actual host)
+    if (userRole === 'viewer' && firstVideoPublisher === user.uid.toString()) {
+      logMessage(`First video publisher/actual host ${user.uid} left - cleaning up AR viewer`);
       if (isThreeViewerActive()) {
         cleanupThreeViewer(logMessage);
-        logMessage(`ThreeJS AR viewer cleaned up after host ${user.uid} left`);
+        logMessage(`ThreeJS AR viewer cleaned up after actual host ${user.uid} left`);
       }
       
       // Remove this user from designated hosts
       designatedHosts.delete(user.uid.toString());
       
-      // Reset first video publisher if the host left
-      if (firstVideoPublisher === user.uid.toString()) {
-        firstVideoPublisher = null;
-        logMessage(`First video publisher reset - next user to publish video will become the new host`);
-      }
+      // Reset first video publisher
+      firstVideoPublisher = null;
+      logMessage(`First video publisher reset - next user to publish video will become the new host`);
     } else {
-      logMessage(`User ${user.uid} left but was not the designated host - AR viewer remains active`);
+      logMessage(`User ${user.uid} left but was not the first video publisher (actual host: ${firstVideoPublisher}) - AR viewer remains active`);
     }
     
     delete remoteUsers[user.uid];
