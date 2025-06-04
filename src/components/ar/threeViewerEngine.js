@@ -15,7 +15,7 @@ export class ThreeViewerEngine {
     this.hostVideoElement = hostVideoElement;
     this.logMessage = logMessage || console.log;
     this.options = Object.assign({
-      keyScale: 2.5,
+      keyScale: 0.5,
     }, options);
     
     // Setup canvas
@@ -341,8 +341,8 @@ export class ThreeViewerEngine {
     const markerSize = Math.min(bounds.width, bounds.height);
     
     // Scale factor to keep key within marker bounds (with some padding)
-    const maxKeySize = markerSize * 0.8; // 80% of marker size for padding
-    const keyScale = maxKeySize / 100; // Assuming key model has a base size of 100 units
+    const maxKeySize = markerSize * 0.3; // 30% of marker size
+    const keyScale = maxKeySize / 50; // Divide by 50 to get the right scale
     
     // Calculate distance-based scale
     const distanceScale = this.calculateDistanceScale(marker);
