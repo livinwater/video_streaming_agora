@@ -132,7 +132,25 @@ export class ArucoARConnector {
             y: (this.detectionCanvas.height / 2) - corner.y
           }));
           
+          // Keep original corners for UI positioning
+          const originalCorners = marker.corners.map(corner => ({
+            x: corner.x,
+            y: corner.y
+          }));
+          
+          // Calculate bounds from corners
+          const bounds = this.calculateMarkerBounds(originalCorners);
+          
+          // Calculate center from corners
+          const center = {
+            x: originalCorners.reduce((sum, corner) => sum + corner.x, 0) / 4,
+            y: originalCorners.reduce((sum, corner) => sum + corner.y, 0) / 4
+          };
+          
           const pose = this.posit.pose(corners);
+          
+          // Calculate distance-based scale
+          const distanceScale = this.calculateDistanceScale(marker, pose);
           
           // Create pose matrix for 3D rendering
           const poseMatrix = this.createTransformMatrix(
@@ -144,7 +162,19 @@ export class ArucoARConnector {
           
           return {
             ...marker,
-            poseMatrix
+            corners: originalCorners, // Use original screen coordinates for UI
+            center: center,
+            bounds: bounds,
+            distanceScale: distanceScale, // Add distance scaling factor
+            poseMatrix,
+            pose: {
+              bestError: pose.bestError,
+              bestRotation: pose.bestRotation,
+              bestTranslation: pose.bestTranslation,
+              alternativeError: pose.alternativeError || 0,
+              alternativeRotation: pose.alternativeRotation || pose.bestRotation,
+              alternativeTranslation: pose.alternativeTranslation || pose.bestTranslation
+            }
           };
         });
         
@@ -190,6 +220,34 @@ export class ArucoARConnector {
     }
   }
   
+  /**
+   * Calculate the bounding box for a marker from its corners
+   * @param {Array} corners - Array of corner objects with x, y properties
+   * @returns {Object} - Bounding box with minX, maxX, minY, maxY, width, height
+   */
+  calculateMarkerBounds(corners) {
+    if (!corners || corners.length === 0) {
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+    }
+    
+    const xs = corners.map(c => c.x);
+    const ys = corners.map(c => c.y);
+    
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  }
+
   /**
    * Create transformation matrix from rotation and translation
    * @param {Array} rotation - Rotation matrix (3x3)
@@ -288,5 +346,43 @@ export class ArucoARConnector {
     
     this.detector = null;
     this.posit = null;
+  }
+
+  /**
+   * Calculate distance-based scale factor from marker pose and size
+   * @param {Object} marker - Detected marker
+   * @param {Object} pose - Pose estimation result
+   * @returns {number} - Distance-based scale factor
+   */
+  calculateDistanceScale(marker, pose) {
+    let distanceScale = 1.0;
+    
+    // Method 1: Use Z translation from pose (most accurate)
+    if (pose && pose.bestTranslation && pose.bestTranslation[2]) {
+      const zDistance = Math.abs(pose.bestTranslation[2]);
+      // Typical range for ArUco detection: 50-500mm
+      const normalizedDistance = Math.max(50, Math.min(500, zDistance));
+      distanceScale = 500 / normalizedDistance; // Inverse relationship
+      
+      this.logMessage(`Marker ${marker.id} Z-distance: ${zDistance.toFixed(2)}mm, distance scale: ${distanceScale.toFixed(2)}`);
+    }
+    // Method 2: Use marker apparent size as distance proxy
+    else if (marker.corners) {
+      const bounds = this.calculateMarkerBounds(marker.corners);
+      const markerArea = bounds.width * bounds.height;
+      const videoArea = this.detectionCanvas.width * this.detectionCanvas.height;
+      const relativeSize = markerArea / videoArea;
+      
+      // Logarithmic scaling for natural perception
+      const minRelativeSize = 0.001; // Very far
+      const maxRelativeSize = 0.1;   // Very close
+      const clampedSize = Math.max(minRelativeSize, Math.min(maxRelativeSize, relativeSize));
+      distanceScale = Math.pow(clampedSize / minRelativeSize, 0.3);
+      
+      this.logMessage(`Marker ${marker.id} relative size: ${(relativeSize * 100).toFixed(2)}%, distance scale: ${distanceScale.toFixed(2)}`);
+    }
+    
+    // Clamp to reasonable bounds
+    return Math.max(0.2, Math.min(3.0, distanceScale));
   }
 }

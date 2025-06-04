@@ -10,6 +10,70 @@ const arucoDetectors = {};
 const markerCallbacks = {};
 
 /**
+ * Calculate the bounding box for a marker from its corners
+ * @param {Array} corners - Array of corner objects with x, y properties
+ * @returns {Object} - Bounding box with minX, maxX, minY, maxY, width, height
+ */
+function calculateMarkerBounds(corners) {
+    if (!corners || corners.length === 0) {
+        return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+    }
+    
+    const xs = corners.map(c => c.x);
+    const ys = corners.map(c => c.y);
+    
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    
+    return {
+        minX,
+        maxX,
+        minY,
+        maxY,
+        width: maxX - minX,
+        height: maxY - minY
+    };
+}
+
+/**
+ * Calculate distance-based scale factor from marker pose and size
+ * @param {Object} marker - Detected marker
+ * @param {Object} pose - Pose estimation result
+ * @param {number} imageWidth - Width of the image
+ * @param {number} imageHeight - Height of the image
+ * @returns {number} - Distance-based scale factor
+ */
+function calculateDistanceScale(marker, pose, imageWidth, imageHeight) {
+    let distanceScale = 1.0;
+    
+    // Method 1: Use Z translation from pose (most accurate)
+    if (pose && pose.bestTranslation && pose.bestTranslation[2]) {
+        const zDistance = Math.abs(pose.bestTranslation[2]);
+        // Typical range for ArUco detection: 50-500mm
+        const normalizedDistance = Math.max(50, Math.min(500, zDistance));
+        distanceScale = 500 / normalizedDistance; // Inverse relationship
+    }
+    // Method 2: Use marker apparent size as distance proxy
+    else if (marker.corners) {
+        const bounds = calculateMarkerBounds(marker.corners);
+        const markerArea = bounds.width * bounds.height;
+        const videoArea = imageWidth * imageHeight;
+        const relativeSize = markerArea / videoArea;
+        
+        // Logarithmic scaling for natural perception
+        const minRelativeSize = 0.001; // Very far
+        const maxRelativeSize = 0.1;   // Very close
+        const clampedSize = Math.max(minRelativeSize, Math.min(maxRelativeSize, relativeSize));
+        distanceScale = Math.pow(clampedSize / minRelativeSize, 0.3);
+    }
+    
+    // Clamp to reasonable bounds
+    return Math.max(0.2, Math.min(3.0, distanceScale));
+}
+
+/**
  * Setup ArUco marker detection on a remote user's video stream
  * @param {string} uid - User ID of the remote stream
  * @param {HTMLVideoElement} videoElement - Video element of the remote stream
@@ -114,6 +178,9 @@ function updateArucoForRemoteStream(uid, logMessage) {
                 if (pose) {
                     poseErrorText = pose.bestError !== undefined ? pose.bestError.toFixed(2) : 'N/A';
                     
+                    // Calculate distance-based scale
+                    const distanceScale = calculateDistanceScale(marker, pose, imageData.width, imageData.height);
+                    
                     // Create 4x4 transformation matrix for BabylonJS
                     // Column-major format
                     const poseMatrix = [
@@ -131,6 +198,8 @@ function updateArucoForRemoteStream(uid, logMessage) {
                             x: marker.corners.reduce((sum, corner) => sum + corner.x, 0) / 4,
                             y: marker.corners.reduce((sum, corner) => sum + corner.y, 0) / 4
                         },
+                        bounds: calculateMarkerBounds(marker.corners),
+                        distanceScale: distanceScale, // Add distance scaling factor
                         poseMatrix: poseMatrix,
                         error: pose.bestError
                     });
