@@ -1,6 +1,6 @@
 // CSS is now imported in _app.js instead
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import { createInstance, LOG_FILTER_ERROR } from 'agora-rtm-sdk'; // Using named imports
+// Remove RTM for now - implement simpler host detection
 import { setupArucoDetectionForRemoteStream, stopArucoDetectionForRemoteStream } from './components/arucoManager.js';
 import { initializeARGame, startARGame, stopARGame, cleanupARGame, isARGameActive } from './components/ar/arGameIntegration.stub.js';
 import { initializeThreeViewer, cleanupThreeViewer, isThreeViewerActive } from './components/ar/threeViewerIntegration.js';
@@ -16,10 +16,8 @@ import {
   getLocalAudioTrack
 } from './components/mediaManager.js';
 
-// RTC and RTM clients and instances
+// RTC client
 let rtcClient = null;
-let rtmClient = null;
-let channelInstance = null; // For RTM channel
 
 // Local user details
 let localUid = null;
@@ -29,6 +27,9 @@ let localProfilePicUrl = 'default-avatar.png'; // Default or fetched user avatar
 
 // Remote users collection
 let remoteUsers = {};
+// Track which remote users are designated hosts (for AR purposes)
+let designatedHosts = new Set(); // Set of UIDs that are actual hosts
+let firstVideoPublisher = null; // Track the first user to publish video (likely the host)
 
 // Track references retrieved from mediaManager
 let currentStream;
@@ -798,8 +799,31 @@ async function subscribe(user, mediaType) {
           const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
           
           if (canvasElement && markerInfoElement) {
-            logMessage(`Setting up ArUco detection for remote user ${user.uid} (legacy subscribe - viewer watching potential host)`);
-            setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+            // Simple heuristic: First user to publish video is considered the host
+            if (!firstVideoPublisher) {
+              firstVideoPublisher = user.uid.toString();
+              designatedHosts.add(user.uid.toString());
+              logMessage(`User ${user.uid} is designated as the first video publisher (likely host)`);
+            }
+            
+            // Check if this user is a designated host
+            if (designatedHosts.has(user.uid.toString())) {
+              logMessage(`Setting up ArUco detection for designated host ${user.uid}`);
+              setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+              
+              // Initialize ThreeJS AR viewer to see 3D keys on this host's video
+              initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
+                markerIds: [0, 63, 91] // Use marker IDs 0, 63, 91 for the AR keys
+              }).then(success => {
+                if (success) {
+                  logMessage(`ThreeJS AR viewer initialized for designated host ${user.uid}`);
+                } else {
+                  logMessage(`Failed to initialize ThreeJS AR viewer for designated host ${user.uid}`);
+                }
+              });
+            } else {
+              logMessage(`Skipping AR setup for user ${user.uid} - not the designated host (first video publisher: ${firstVideoPublisher})`);
+            }
           }
         } else {
           logMessage(`Skipping ArUco setup for remote user ${user.uid} - Role: ${userRole}`);
@@ -847,6 +871,10 @@ async function leaveChannel() {
     // Leave the channel
     await rtcClient.leave();
     logMessage('Left the channel successfully.');
+    
+    // Clear designated hosts and first video publisher
+    designatedHosts.clear();
+    firstVideoPublisher = null;
     
     // Clean up remote users
     Object.keys(remoteUsers).forEach(uid => {
@@ -938,22 +966,34 @@ function setupClientEvents() {
         const canvasElement = document.getElementById(`canvas-${user.uid}`);
         const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
         
-        // Setup ArUco marker detection only on remote user's streams if WE are a viewer watching THEM
-        // This allows viewers to see AR overlays on the host's video
+        // Setup ArUco marker detection ONLY on designated hosts, not all video streams
+        // This prevents AR keys from appearing on regular viewers' videos
         if (userRole === 'viewer' && canvasElement && markerInfoElement) {
-          logMessage(`Setting up ArUco detection for remote user ${user.uid} (viewer watching potential host)`);
-          setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+          // Simple heuristic: First user to publish video is considered the host
+          if (!firstVideoPublisher) {
+            firstVideoPublisher = user.uid.toString();
+            designatedHosts.add(user.uid.toString());
+            logMessage(`User ${user.uid} is designated as the first video publisher (likely host)`);
+          }
           
-          // Initialize ThreeJS AR viewer to see 3D keys on this remote user's video
-          initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
-            markerIds: [0, 63, 91] // Use marker IDs 0, 63, 91 for the AR keys
-          }).then(success => {
-            if (success) {
-              logMessage(`ThreeJS AR viewer initialized for remote user ${user.uid}`);
-            } else {
-              logMessage(`Failed to initialize ThreeJS AR viewer for remote user ${user.uid}`);
-            }
-          });
+          // Check if this user is a designated host
+          if (designatedHosts.has(user.uid.toString())) {
+            logMessage(`Setting up ArUco detection for designated host ${user.uid}`);
+            setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+            
+            // Initialize ThreeJS AR viewer to see 3D keys on this host's video
+            initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
+              markerIds: [0, 63, 91] // Use marker IDs 0, 63, 91 for the AR keys
+            }).then(success => {
+              if (success) {
+                logMessage(`ThreeJS AR viewer initialized for designated host ${user.uid}`);
+              } else {
+                logMessage(`Failed to initialize ThreeJS AR viewer for designated host ${user.uid}`);
+              }
+            });
+          } else {
+            logMessage(`Skipping AR setup for user ${user.uid} - not the designated host (first video publisher: ${firstVideoPublisher})`);
+          }
         } else {
           logMessage(`Skipping AR setup for remote user ${user.uid} - Role: ${userRole}, Canvas: ${!!canvasElement}, MarkerInfo: ${!!markerInfoElement}`);
         }

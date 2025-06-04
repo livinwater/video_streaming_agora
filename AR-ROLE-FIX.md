@@ -22,9 +22,40 @@ if (canvasElement && markerInfoElement) {
 }
 ```
 
-## The Fix ✅
+## The Fix ✅ (Updated: Simplified Approach)
 
-### 1. Host AR Setup (Local Video)
+### Approach: First Video Publisher = Host
+
+Instead of using RTM messaging (which can be complex), we use a simple heuristic:
+- **First user to publish video** = designated host
+- **Only this user gets AR detection** from viewers
+- **Other video streams are ignored** for AR purposes
+
+### 1. Host Detection Logic
+**File**: `src/main.js` - `user-published` event handler
+
+```javascript
+// ✅ FIXED: Simple host detection
+if (userRole === 'viewer' && canvasElement && markerInfoElement) {
+  // Simple heuristic: First user to publish video is considered the host
+  if (!firstVideoPublisher) {
+    firstVideoPublisher = user.uid.toString();
+    designatedHosts.add(user.uid.toString());
+    logMessage(`User ${user.uid} is designated as the first video publisher (likely host)`);
+  }
+  
+  // Check if this user is a designated host
+  if (designatedHosts.has(user.uid.toString())) {
+    logMessage(`Setting up ArUco detection for designated host ${user.uid}`);
+    setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+    // ... AR setup
+  } else {
+    logMessage(`Skipping AR setup for user ${user.uid} - not the designated host`);
+  }
+}
+```
+
+### 2. Host AR Setup (Local Video) - Unchanged
 **File**: `src/main.js` - `createLocalParticipantTile()` function
 
 ```javascript
@@ -32,87 +63,69 @@ if (canvasElement && markerInfoElement) {
 if (canvasElement && markerInfoElement && userRole === 'host') {
   logMessage(`Setting up ArUco detection for host's own video (${localUidStr})`);
   setupArucoDetectionForRemoteStream(localUidStr, localVideoElement, canvasElement, markerInfoElement, logMessage);
-} else {
-  logMessage(`Skipping ArUco detection setup - Role: ${userRole}`);
 }
 ```
 
-### 2. Remote User AR Setup (Other Users' Videos)
-**File**: `src/main.js` - `user-published` event handler
+### 3. State Management
+**File**: `src/main.js` - Added tracking variables
 
 ```javascript
-// ✅ FIXED: Only viewers get AR overlays when watching remote users
-if (userRole === 'viewer' && canvasElement && markerInfoElement) {
-  logMessage(`Setting up ArUco detection for remote user ${user.uid} (viewer watching potential host)`);
-  setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
-  
-  // Initialize ThreeJS AR viewer to see 3D keys on this remote user's video
-  initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
-    markerIds: [0, 63, 91] // Use marker IDs 0, 63, 91 for the AR keys
-  });
-} else {
-  logMessage(`Skipping AR setup for remote user ${user.uid} - Role: ${userRole}`);
-}
-```
+let designatedHosts = new Set(); // Set of UIDs that are actual hosts
+let firstVideoPublisher = null; // Track the first user to publish video (likely the host)
 
-### 3. Legacy Subscribe Function Fix
-**File**: `src/main.js` - `subscribe()` function
-
-```javascript
-// ✅ FIXED: Legacy function also respects user roles
-if (userRole === 'viewer') {
-  const canvasElement = document.getElementById(`canvas-${user.uid}`);
-  const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
-  
-  if (canvasElement && markerInfoElement) {
-    setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
-  }
-} else {
-  logMessage(`Skipping ArUco setup for remote user ${user.uid} - Role: ${userRole}`);
-}
+// Clean up on channel leave
+designatedHosts.clear();
+firstVideoPublisher = null;
 ```
 
 ## How It Works Now 🎯
 
-### Host (AR Source)
-1. **Host starts their video** → AR detection is enabled on their own video
-2. **Host shows ArUco markers** → Markers are detected and keys are rendered
-3. **Host streams AR-enhanced video** → Viewers see the AR content
+### Expected Scenario
+1. **Host joins** → joins as host role → publishes video → becomes `firstVideoPublisher`
+2. **Viewer 1 joins** → sees host video → sets up AR detection on host only
+3. **Viewer 2 joins** → also turns on camera → their video is ignored for AR
+4. **Viewer 3 joins** → sees AR keys only on the host's video
 
-### Viewers (AR Consumers)  
-1. **Viewer joins channel** → No AR detection on their own video
-2. **Viewer sees host's video** → AR overlay system is enabled for host's stream
-3. **Host shows markers** → Viewer sees 3D keys rendered on host's video
-4. **Viewer's own video** → No AR detection or rendering
-
-## Debug Output 📝
+### Debug Output 📝
 
 You should now see proper logging like this:
 
-**Host logs:**
+**Viewer logs when host joins:**
 ```
-Setting up ArUco detection for host's own video (80183)
-Marker 0 Z-distance: 180.50mm, distance scale: 2.77
-Key 0 positioned at (-0.50, -0.46, -0.50) with scale 17.76 (base: 5.92, distance: 3.00)
+User 42373 is designated as the first video publisher (likely host)
+Setting up ArUco detection for designated host 42373
+ThreeJS AR viewer initialized for designated host 42373
 ```
 
-**Viewer logs:**
+**Viewer logs when another viewer joins:**
 ```
-Skipping ArUco detection setup - Role: viewer
-Setting up ArUco detection for remote user 80183 (viewer watching potential host)
-ThreeJS AR viewer initialized for remote user 80183
+Skipping AR setup for user 12345 - not the designated host (first video publisher: 42373)
 ```
 
 ## User Experience 👤
 
-- **Host**: Shows ArUco markers → sees AR keys on their own video → streams enhanced video
+- **Host (42373)**: Shows ArUco markers → sees AR keys on their own video → streams enhanced video
 - **Viewer 1**: Watches host → sees AR keys on host's video when host shows markers
-- **Viewer 2**: Watches host → sees same AR keys, but NO AR on their own video
-- **Result**: AR only appears where it should (on the host's markers)
+- **Viewer 2**: Watches host + turns on camera → sees AR keys on host only, NOT on their own video
+- **Result**: AR only appears on the designated host's video
 
 ## Files Modified 📁
 
-- ✅ `src/main.js` - Fixed AR setup logic for proper role-based detection
-- ✅ Created `AR-ROLE-FIX.md` - Documentation of the fix
+- ✅ `src/main.js` - Implemented simplified host detection based on first video publisher
+- ✅ Updated `AR-ROLE-FIX.md` - Documentation of the simplified fix
 
-The bug is now fixed! AR detection and rendering will only happen on the appropriate user's video based on their role. 
+## Why This Approach Works
+
+1. **No RTM dependency** - Works with just RTC
+2. **Simple heuristic** - First to publish video = host
+3. **Predictable behavior** - Host typically joins and starts streaming first
+4. **Clear separation** - Only designated host gets AR treatment
+
+The bug is now fixed with a much simpler approach! AR detection and rendering will only happen on the first user to publish video (the designated host).
+
+## Testing
+
+1. **Host joins first** → publishes video → should become the designated host
+2. **Viewers join later** → should see AR only on the host's video
+3. **Other viewers turn on cameras** → should NOT get AR detection
+4. **AR keys appear only on host's markers** → not on any viewer's video 
