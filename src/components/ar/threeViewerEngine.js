@@ -341,8 +341,8 @@ export class ThreeViewerEngine {
     const markerSize = Math.min(bounds.width, bounds.height);
     
     // Scale factor to keep key within marker bounds (with some padding)
-    const maxKeySize = markerSize * 0.3; // 30% of marker size
-    const keyScale = maxKeySize / 50; // Divide by 50 to get the right scale
+    const maxKeySize = markerSize * 0.12; // 12% of marker size  
+    const keyScale = maxKeySize / 90; // Divide by 90 to get the right scale
     
     // Calculate distance-based scale
     const distanceScale = this.calculateDistanceScale(marker);
