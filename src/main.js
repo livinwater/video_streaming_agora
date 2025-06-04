@@ -1023,22 +1023,34 @@ function setupClientEvents() {
   // Stream events - remote user left
   rtcClient.on('user-left', (user) => {
     logMessage(`Remote user ${user.uid} left the channel`);
+    
     // Remove the user's tile from the DOM
     const userTile = document.getElementById(`participant-${user.uid.toString()}`);
     if (userTile) {
       userTile.remove();
     }
     
-    // Clean up any resources for this user
+    // Clean up any resources for this specific user
     stopArucoDetectionForRemoteStream(user.uid.toString(), logMessage);
     
-    // If we're a viewer, clean up any active AR viewers
-    if (userRole === 'viewer') {
-      // Clean up ThreeJS AR viewer if active
+    // Only clean up AR viewer if the user who left was the designated host
+    if (userRole === 'viewer' && designatedHosts.has(user.uid.toString())) {
+      logMessage(`Designated host ${user.uid} left - cleaning up AR viewer`);
       if (isThreeViewerActive()) {
         cleanupThreeViewer(logMessage);
         logMessage(`ThreeJS AR viewer cleaned up after host ${user.uid} left`);
       }
+      
+      // Remove this user from designated hosts
+      designatedHosts.delete(user.uid.toString());
+      
+      // Reset first video publisher if the host left
+      if (firstVideoPublisher === user.uid.toString()) {
+        firstVideoPublisher = null;
+        logMessage(`First video publisher reset - next user to publish video will become the new host`);
+      }
+    } else {
+      logMessage(`User ${user.uid} left but was not the designated host - AR viewer remains active`);
     }
     
     delete remoteUsers[user.uid];
