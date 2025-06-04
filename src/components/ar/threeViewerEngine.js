@@ -15,7 +15,7 @@ export class ThreeViewerEngine {
     this.hostVideoElement = hostVideoElement;
     this.logMessage = logMessage || console.log;
     this.options = Object.assign({
-      keyScale: 5.0,
+      keyScale: 2.5,
     }, options);
     
     // Setup canvas
