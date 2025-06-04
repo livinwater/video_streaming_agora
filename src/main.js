@@ -272,9 +272,11 @@ function createLocalParticipantTile() {
         const canvasElement = document.getElementById(`canvas-${localUidStr}`);
         const markerInfoElement = document.getElementById(`marker-info-${localUidStr}`);
         
-        if (canvasElement && markerInfoElement) {
+        if (canvasElement && markerInfoElement && userRole === 'host') {
           logMessage(`Setting up ArUco detection for host's own video (${localUidStr})`);
           setupArucoDetectionForRemoteStream(localUidStr, localVideoElement, canvasElement, markerInfoElement, logMessage);
+        } else {
+          logMessage(`Skipping ArUco detection setup - Role: ${userRole}, Canvas: ${!!canvasElement}, MarkerInfo: ${!!markerInfoElement}`);
         }
       }
       
@@ -789,7 +791,19 @@ async function subscribe(user, mediaType) {
       if (videoElement) {
         user.videoTrack.play(videoElement);
         logMessage(`Playing video for ${user.uid} in tile.`);
-        setupArucoDetectionForRemoteStream(user.uid.toString());
+        
+        // Only setup ArUco detection if we're a viewer (to see AR on potential host's video)
+        if (userRole === 'viewer') {
+          const canvasElement = document.getElementById(`canvas-${user.uid}`);
+          const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
+          
+          if (canvasElement && markerInfoElement) {
+            logMessage(`Setting up ArUco detection for remote user ${user.uid} (legacy subscribe - viewer watching potential host)`);
+            setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+          }
+        } else {
+          logMessage(`Skipping ArUco setup for remote user ${user.uid} - Role: ${userRole}`);
+        }
       } else {
         logMessage(`Error: Video element for ${user.uid} not found after adding tile.`);
       }
@@ -924,21 +938,24 @@ function setupClientEvents() {
         const canvasElement = document.getElementById(`canvas-${user.uid}`);
         const markerInfoElement = document.getElementById(`marker-info-${user.uid}`);
         
-        // Setup ArUco marker detection on the remote stream
-        setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
-        
-        // If this user is a host and we are a viewer, initialize the ThreeJS AR viewer
-        if (userRole === 'viewer') {
-          // Check if the user is a host by checking if they're publishing video
+        // Setup ArUco marker detection only on remote user's streams if WE are a viewer watching THEM
+        // This allows viewers to see AR overlays on the host's video
+        if (userRole === 'viewer' && canvasElement && markerInfoElement) {
+          logMessage(`Setting up ArUco detection for remote user ${user.uid} (viewer watching potential host)`);
+          setupArucoDetectionForRemoteStream(user.uid.toString(), videoElement, canvasElement, markerInfoElement, logMessage);
+          
+          // Initialize ThreeJS AR viewer to see 3D keys on this remote user's video
           initializeThreeViewer(videoElement, user.uid.toString(), logMessage, {
-            markerIds: [1] // Use marker ID 1 for the AR key
+            markerIds: [0, 63, 91] // Use marker IDs 0, 63, 91 for the AR keys
           }).then(success => {
             if (success) {
-              logMessage(`ThreeJS AR viewer initialized for host ${user.uid}`);
+              logMessage(`ThreeJS AR viewer initialized for remote user ${user.uid}`);
             } else {
-              logMessage(`Failed to initialize ThreeJS AR viewer for host ${user.uid}`);
+              logMessage(`Failed to initialize ThreeJS AR viewer for remote user ${user.uid}`);
             }
           });
+        } else {
+          logMessage(`Skipping AR setup for remote user ${user.uid} - Role: ${userRole}, Canvas: ${!!canvasElement}, MarkerInfo: ${!!markerInfoElement}`);
         }
       } else {
         logMessage(`Error: Video or avatar element not found for user ${user.uid} after adding tile.`);
